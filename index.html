@@ -27,6 +27,12 @@
       <button data-action="nav" data-to="profile" data-tab="profile" data-guide="tab.profile"><svg class="i" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/></svg><span>Profile</span></button>
     </nav>
 
+    <!-- Overlay control: toggles blur on everything except Send / Load / Transfer / Bills (home screen only) -->
+    <button id="focus-toggle" class="focus-toggle" type="button" data-action="toggle-focus" data-guide="overlay.focus-toggle" aria-pressed="false" hidden>
+      <svg class="i" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M3 7V5a2 2 0 0 1 2-2h2"/><path d="M17 3h2a2 2 0 0 1 2 2v2"/><path d="M21 17v2a2 2 0 0 1-2 2h-2"/><path d="M7 21H5a2 2 0 0 1-2-2v-2"/></svg>
+      <span id="focus-toggle-label">Focus: Off</span>
+    </button>
+
     <div id="modal-root"></div>
     <div id="toast-root"></div>
   </div>

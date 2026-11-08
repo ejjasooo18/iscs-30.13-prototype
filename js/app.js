@@ -166,6 +166,7 @@
       device.dataset.screen = pattern;
       navEl.hidden = !tab;
       $$('[data-tab]', navEl).forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      applyFocus();
       save();
       if (view.after) view.after();
       emit('app:screen', { route: pattern, path, params });
@@ -412,9 +413,22 @@
   }
 
   /* ---------- Home ---------- */
+  /* Focus mode: home-screen buttons that stay sharp when blurring is on. */
+  const FOCUS_KEEP = ['send', 'load', 'transfer', 'bills'];
+  function applyFocus() {
+    const btn = $('#focus-toggle');
+    const on = !!S.focusMode;
+    device.classList.toggle('focus-on', on);
+    if (!btn) return;
+    btn.hidden = currentPath() !== 'home';
+    btn.setAttribute('aria-pressed', String(on));
+    btn.classList.toggle('active', on);
+    $('#focus-toggle-label').textContent = on ? 'Focus: On' : 'Focus: Off';
+  }
+
   function partOfDay() { const h = new Date().getHours(); return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'; }
   function screenHome() {
-    const svc = s => `<button class="svc" data-action="${s.to ? 'nav' : 'soon'}" ${s.to ? `data-to="${s.to}"` : `data-name="${s.label}"`} data-guide="home.svc-${s.id}">
+    const svc = s => `<button class="svc${FOCUS_KEEP.includes(s.id) ? ' keep' : ''}" data-action="${s.to ? 'nav' : 'soon'}" ${s.to ? `data-to="${s.to}"` : `data-name="${s.label}"`} data-guide="home.svc-${s.id}">
         <span class="ic">${icon(s.icon, 22)}${s.badge ? `<span class="badge-new">${s.badge}</span>` : ''}</span><span>${s.label}</span></button>`;
     return {
       html: `<div class="home">
@@ -970,6 +984,7 @@
     'dialog-ok': () => { const cb = dialogCb; dialogCb = null; closeModal(); if (cb) cb(); },
     'pin-key': el => pinKey(el.dataset.key),
     'pin-del': () => pinDel(),
+    'toggle-focus': () => { S.focusMode = !S.focusMode; save(); applyFocus(); emit('app:focus', { on: S.focusMode }); },
     'toggle-balance': () => { S.hideBalance = !S.hideBalance; render(); },
     confirm: el => confirm(el.dataset.kind),
     'send-to': el => { S.draft.send = { mobile: el.dataset.mobile }; go('send/form'); },
