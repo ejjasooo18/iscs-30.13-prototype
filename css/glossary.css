@@ -1,0 +1,61 @@
+/* Glossary overlay (js/glossary.js). Sits above the app inside #device;
+   only the "?" buttons and the explanation card take taps. */
+#glossary-layer { position: absolute; inset: 0; z-index: 100; pointer-events: none; }
+
+.gl-marks { position: absolute; overflow: hidden; pointer-events: none; }
+.gl-marks[hidden] { display: none; }
+
+.gl-mark {
+  position: absolute;
+  background: rgba(255, 205, 40, .38);
+  border-bottom: 2px dotted #b7791f;
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.gl-q {
+  position: absolute;
+  width: 24px; height: 24px;
+  border: 2px solid #fff; border-radius: 50%;
+  background: #d97706; color: #fff;
+  font: 800 13px/1 system-ui, sans-serif;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 6px rgba(20, 40, 80, .3);
+  pointer-events: auto;
+  cursor: pointer;
+}
+.gl-q:active { transform: scale(.92); }
+.gl-q:focus-visible { outline: 3px solid var(--blue, #0b63f6); outline-offset: 2px; }
+
+.gl-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(10, 20, 40, .5);
+  display: flex; align-items: flex-end;
+  pointer-events: auto;
+  animation: gl-fade .2s;
+}
+.gl-card {
+  width: 100%;
+  background: #fff; color: var(--ink, #1c2028);
+  border-radius: 22px 22px 0 0;
+  padding: 20px 20px 24px;
+  animation: gl-up .25s ease-out;
+}
+.gl-kicker { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: #b45309; }
+.gl-card h3 { font-size: 20px; margin: 4px 0 12px; }
+.gl-simple {
+  font-size: 16px; line-height: 1.45;
+  background: #fff7e0; border-left: 4px solid #d97706; border-radius: 8px;
+  padding: 10px 12px; margin-bottom: 10px;
+}
+.gl-explain { font-size: 15.5px; line-height: 1.55; margin-bottom: 18px; }
+.gl-ok {
+  width: 100%; height: 48px;
+  border: 0; border-radius: 24px;
+  background: var(--blue, #0b63f6); color: #fff;
+  font-size: 16px; font-weight: 700;
+}
+
+@keyframes gl-fade { from { opacity: 0; } }
+@keyframes gl-up { from { transform: translateY(100%); } }
+@media (prefers-reduced-motion: reduce) { .gl-backdrop, .gl-card { animation: none; } }

@@ -356,8 +356,11 @@ code { font-size: 11px; background: var(--blue-50); padding: 1px 4px; border-rad
 .empty p { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
 
 /* ---------- focus (blur) mode ----------
-   When #device has .focus-on and we're on Home, every button except
-   Send / Load / Transfer / Bills (.keep) is blurred and made untappable. */
+   The Focus button opens a picker (Send Money / Buy Load / Pay Electric Bill /
+   Transfer to Bank). While one is picked, every screen of that flow blurs
+   whatever isn't needed for the next step: applyStepBlur() in app.js adds
+   .fx-blur (and `inert`) to those elements, using FOCUS_OPTIONS. On Home the
+   picked service button (.focused) also gets a ring and a task label. */
 .focus-toggle {
   position: absolute; right: 12px; bottom: 74px; z-index: 40;
   display: flex; align-items: center; gap: 6px;
@@ -369,18 +372,47 @@ code { font-size: 11px; background: var(--blue-50); padding: 1px 4px; border-rad
 }
 .focus-toggle.active { background: var(--blue); border-color: var(--blue); color: #fff; }
 
-#device.focus-on[data-screen="home"] .home button:not(.keep),
-#device.focus-on[data-screen="home"] #bottom-nav button {
+#device.focus-on .fx-blur {
   filter: blur(4px);
   opacity: .45;
   pointer-events: none;
+  user-select: none;
   transition: filter .25s, opacity .25s;
 }
-#device.focus-on[data-screen="home"] .home .svc.keep {
-  filter: none; opacity: 1;
+#device.focus-on[data-screen="home"] .home .svc.focused .svc-label {
+  font-weight: 700; line-height: 1.2; text-align: center;
 }
-#device.focus-on[data-screen="home"] .home .svc.keep .ic {
-  box-shadow: 0 0 0 2px var(--blue);
+
+/* What to press: pulsing ring on each step's controls, plus a number badge on
+   each step's first control when the screen has more than one step. */
+#device.focus-on .fx-hl {
+  position: relative;
+  animation: fx-pulse 1.6s ease-in-out infinite;
+}
+#device.focus-on .input-wrap.fx-hl { border-radius: 10px; }
+#device.focus-on .list-item.fx-hl { border-radius: 0; animation-name: fx-pulse-inset; } /* .list clips outer rings */
+#device.focus-on .fx-hl[data-step]::after {
+  content: attr(data-step);
+  position: absolute; top: -8px; left: -8px; z-index: 3;
+  width: 20px; height: 20px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: var(--blue); color: #fff;
+  font-size: 11px; font-weight: 800; line-height: 1;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+#device.focus-on .list-item.fx-hl[data-step]::after { top: 4px; left: 4px; }
+@keyframes fx-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px var(--blue), 0 0 0 4px rgba(11, 99, 246, .12); }
+  50%      { box-shadow: 0 0 0 2px var(--blue), 0 0 0 8px rgba(11, 99, 246, .22); }
+}
+@keyframes fx-pulse-inset {
+  0%, 100% { box-shadow: inset 0 0 0 2px var(--blue); background: #fff; }
+  50%      { box-shadow: inset 0 0 0 2px var(--blue); background: var(--blue-50); }
+}
+@media (prefers-reduced-motion: reduce) {
+  #device.focus-on .fx-hl { animation: none; box-shadow: 0 0 0 2px var(--blue); }
+  #device.focus-on .list-item.fx-hl { box-shadow: inset 0 0 0 2px var(--blue); }
 }
 
 /* ---------- modals, sheets, dialogs, toasts ---------- */
@@ -391,6 +423,16 @@ code { font-size: 11px; background: var(--blue-50); padding: 1px 4px; border-rad
 .sheet-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .sheet-head h2 { font-size: 16px; }
 .sheet-head .icon-btn { color: var(--muted); }
+.sheet-head h2:not(:first-child) { flex: 1; text-align: center; }
+
+/* Focus → Configure sheet */
+.cfg-group { font-size: 12px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); margin: 16px 0 6px; }
+.cfg-check {
+  flex: none; width: 24px; height: 24px; border-radius: 50%;
+  border: 2px solid var(--line); display: grid; place-items: center; color: #fff;
+}
+.cfg-check.on { background: var(--blue); border-color: var(--blue); }
+.cfg-done { width: 100%; margin-top: 18px; }
 .sheet-sub { font-size: 12.5px; color: var(--muted); margin-top: 4px; }
 .sheet-body { font-size: 14px; line-height: 1.55; margin: 10px 0; }
 .sheet-amt { font-size: 26px; font-weight: 800; text-align: center; margin: 12px 0; }

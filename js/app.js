@@ -108,17 +108,20 @@
     ['send', screenSendHub],
     ['send/form', screenSendForm],
     ['send/review', screenSendReview],
+    ['send/otp', () => screenOtp('send')],
     ['load', screenLoadForm],
     ['load/promos', screenLoadPromos],
     ['load/review', screenLoadReview],
+    ['load/otp', () => screenOtp('load')],
     ['bills', screenBillCategories],
     ['bills/category/:cat', screenBillerList],
     ['bills/biller/:biller', screenBillForm],
     ['bills/review', screenBillReview],
+    ['bills/otp', () => screenOtp('bill')],
     ['bank', screenBankList],
     ['bank/form/:bank', screenBankForm],
     ['bank/review', screenBankReview],
-    ['bank/otp', screenBankOtp],
+    ['bank/otp', () => screenOtp('bank')],
     ['result', screenResult],
   ];
 
@@ -343,17 +346,6 @@
     if (!tick()) { const id = setInterval(() => { if (tick()) clearInterval(id); }, 1000); timers.push(id); }
   }
 
-  function askMpin(onOk) {
-    openModal(`<div class="sheet pin-sheet" data-guide="mpin.sheet">
-      <div class="sheet-head"><h2>Enter your MPIN</h2>
-        <button class="icon-btn" data-action="modal-close" data-guide="mpin.close" aria-label="Close">${icon('x')}</button></div>
-      <p class="sheet-sub">For your security, enter your 4-digit MPIN to authorize this transaction.</p>
-      ${pinDots('mpin')}<p class="pin-msg" id="pin-msg" data-guide="mpin.message"></p>${keypad('mpin')}
-    </div>`, { name: 'mpin' });
-    pinStart('mpin', () => { closeModal(); onOk(); });
-    updateLockUI();
-  }
-
   /* ---------------- transaction processing ---------------- */
   function processTxn(kind, txn, retryPath, delay = 1400) {
     showLoading('Processing your transaction…');
@@ -413,23 +405,226 @@
   }
 
   /* ---------- Home ---------- */
-  /* Focus mode: home-screen buttons that stay sharp when blurring is on. */
-  const FOCUS_KEEP = ['send', 'load', 'transfer', 'bills'];
+  /* Focus mode: the Focus button opens a picker of tasks. The picked one
+     (S.focusMode = its id) guides the user through its whole flow: on every
+     screen of that flow only the parts needed for the next step stay sharp;
+     everything else is blurred and untappable. On Home the matching service
+     button also gets the task's label and goes straight to the task.
+     The picker lists the tasks the user switched on (S.focusEnabled); its
+     "Configure" row lets them add or remove tasks from the full FOCUS_OPTIONS pool.
+
+     Each option's `steps` maps a screen (an exact path like
+     'bills/category/water', or a route pattern) to:
+       keep  – extra CSS selectors that stay sharp but aren't something to press
+       steps – what to press/fill, in order. Each step is one CSS selector; a
+               comma list means "any of these" (alternatives share a number).
+     Steps get a pulsing ring; with more than one visible step, each step's first
+     control also gets a number badge. Screens with no entry aren't touched. */
+  const g = (...n) => n.map(x => `[data-guide="${x}"]`);
+  const any = (...n) => g(...n).join(', ');
+  const fld = (...n) => n.map(x => `[data-field="${x}"]`);
+  const FOCUS_COMMON = [...g('nav.back'), '.appbar h1'];
+  const STEP_REVIEW = { keep: g('review.amount', 'review.details', 'review.warning'), steps: g('review.confirm') };
+  const STEP_OTP = { keep: ['.otp'], steps: g('otp.input', 'otp.submit') };
+  const STEP_RESULT = { keep: ['.result-icon', '.result h2', '.result-amt', ...g('result.receipt', 'result.message')], steps: [any('result.done', 'result.retry')] };
+  const TAIL = base => ({ [`${base}/review`]: STEP_REVIEW, [`${base}/otp`]: STEP_OTP, result: STEP_RESULT });
+
+  const LOAD_FORM = {
+    keep: [...fld('mobile'), ...g('load.network'), '#net-pick'],
+    steps: [any('load.mobile', 'load.self'), '#net-pick .chip.radio', ...g('load.next')],
+  };
+  /* One load option per tab. If the wrong tab is open, step 1 is "tap the right
+     tab"; once it's open, the only step is picking an amount / promo. */
+  const loadOption = (tab, label, ic, pick) => ({
+    group: 'Buy load', label, icon: ic, svc: 'load', to: 'load',
+    steps: {
+      home: { steps: g('home.svc-load') },
+      load: LOAD_FORM,
+      'load/promos': { keep: [...g('load.target', `load.tab-${tab}`)], steps: [`[data-guide="load.tab-${tab}"]:not(.active)`, pick] },
+      ...TAIL('load'),
+    },
+  });
+  const BILL_LABELS = {
+    electric: 'Pay Electric Bill', water: 'Pay Water Bill', internet: 'Pay Internet Bill', telecom: 'Pay Postpaid Phone Bill',
+    gov: 'Pay Government Fees', insurance: 'Pay Insurance', cards: 'Pay Credit Card Bill', schools: 'Pay School Fees',
+  };
+  /* One bill option per biller category. */
+  const billOption = c => ({
+    group: 'Pay bills', label: BILL_LABELS[c.id] || `Pay ${c.name}`, icon: c.icon, svc: 'bills', to: `bills/category/${c.id}`,
+    steps: {
+      home: { steps: g('home.svc-bills') },
+      bills: { keep: g('bills.search'), steps: [any(`bills.cat-${c.id}`, ...c.billers.flatMap(b => [`bills.saved-${b.id}`, `bills.biller-${b.id}`]))] },
+      [`bills/category/${c.id}`]: { keep: [...g('bills.category-search'), '#no-results'], steps: ['.list.filterable .list-item'] },
+      'bills/biller/:biller': { keep: fld('account', 'accountName', 'amount'), steps: g('bill.account', 'bill.account-name', 'bill.amount', 'bill.next') },
+      ...TAIL('bills'),
+    },
+  });
+
+  /* The full pool, in the order shown in Configure. */
+  const FOCUS_OPTIONS = {
+    send: {
+      group: 'Send money', label: 'Send Money', icon: 'send', svc: 'send', to: 'send',
+      steps: {
+        home: { steps: g('home.svc-send') },
+        send: { steps: g('send.express') },
+        'send/form': { keep: fld('mobile', 'amount'), steps: g('send.mobile', 'send.amount', 'send.next') },
+        ...TAIL('send'),
+      },
+    },
+    'load-regular': loadOption('regular', 'Buy Regular Load', 'smartphone', '.amt-grid .amt'),
+    'load-data': loadOption('data', 'Buy Data Promo', 'wifi', '[data-guide^="load.promo-d"]'),
+    'load-call': loadOption('call', 'Buy Call & Text Promo', 'smartphone', '[data-guide^="load.promo-c"]'),
+    transfer: {
+      group: 'Bank transfer', label: 'Transfer to Bank', icon: 'landmark', svc: 'transfer', to: 'bank',
+      steps: {
+        home: { steps: g('home.svc-transfer') },
+        bank: { keep: [...g('bank.search'), '#no-results'], steps: ['[data-guide^="bank.bank-"]'] },
+        'bank/form/:bank': { keep: fld('accountName', 'account', 'amount'), steps: g('bank.account-name', 'bank.account', 'bank.amount', 'bank.next') },
+        ...TAIL('bank'),
+      },
+    },
+    ...Object.fromEntries(BILL_CATEGORIES.map(c => [`bills-${c.id}`, billOption(c)])),
+  };
+  const FOCUS_SVCS = new Set(Object.values(FOCUS_OPTIONS).map(o => o.svc));
+  const DEFAULT_FOCUS = ['send', 'load-regular', 'transfer', 'bills-electric'];
+  const LEGACY_FOCUS = { load: 'load-regular', bills: 'bills-electric' }; // ids saved by older builds
+  const focusEnabled = () => (Array.isArray(S.focusEnabled) ? S.focusEnabled : DEFAULT_FOCUS).filter(id => FOCUS_OPTIONS[id]);
+  const focusTarget = () => {
+    const id = LEGACY_FOCUS[S.focusMode] || S.focusMode;
+    return FOCUS_OPTIONS[id] ? id : null;
+  };
+
+  /* The element that gets the ring: inputs use their .input-wrap (inputs can't
+     show a ::after badge), Home service buttons use their icon tile. */
+  const hlTarget = el => (el.matches('input, select, textarea') && el.closest('.input-wrap'))
+    || (el.matches('.svc') && $('.ic', el)) || el;
+  const isShown = el => !el.closest('[hidden]');
+
+  /* Blur every element on the screen that neither is, contains, nor sits inside
+     a kept element (blurred = also inert: no taps, no tabbing), then ring and
+     number the steps. */
+  function applyStepBlur(target) {
+    $$('.fx-blur', device).forEach(el => { el.classList.remove('fx-blur'); el.inert = false; });
+    $$('.fx-hl', device).forEach(el => { el.classList.remove('fx-hl'); delete el.dataset.step; });
+    const steps = target && FOCUS_OPTIONS[target].steps;
+    const spec = steps && (steps[currentPath()] || steps[device.dataset.screen]);
+    if (!spec) return;
+
+    const stepEls = (spec.steps || []).map(s => $$(s, screenEl).filter(isShown)).filter(list => list.length);
+    const keep = [];
+    [...FOCUS_COMMON, ...(spec.keep || [])].forEach(s => $$(s, screenEl).forEach(el => keep.push(el)));
+    stepEls.flat().forEach(el => keep.push(el));
+
+    const blur = el => { el.classList.add('fx-blur'); el.inert = true; };
+    const walk = parent => {
+      for (const child of parent.children) {
+        if (keep.includes(child)) continue;
+        if (keep.some(k => child.contains(k))) walk(child);
+        else blur(child);
+      }
+    };
+    walk(screenEl);
+    $$('button', navEl).forEach(blur);
+
+    stepEls.forEach((list, i) => list.forEach((el, j) => {
+      const t = hlTarget(el);
+      t.classList.add('fx-hl');
+      if (stepEls.length > 1 && j === 0) t.dataset.step = String(i + 1);
+    }));
+  }
+
   function applyFocus() {
     const btn = $('#focus-toggle');
-    const on = !!S.focusMode;
-    device.classList.toggle('focus-on', on);
+    const target = focusTarget();
+    const opt = target && FOCUS_OPTIONS[target];
+    device.classList.toggle('focus-on', !!target);
+    $$('.svc.keep', screenEl).forEach(el => {
+      const on = !!opt && el.dataset.svc === opt.svc;
+      el.classList.toggle('focused', on);
+      el.dataset.to = on ? opt.to : el.dataset.defaultTo;
+      const label = on ? opt.label : el.dataset.defaultLabel;
+      const lbl = $('.svc-label', el);
+      if (lbl.textContent !== label) lbl.textContent = label; // avoid needless DOM mutations (observer below)
+    });
+    applyStepBlur(target);
     if (!btn) return;
     btn.hidden = currentPath() !== 'home';
-    btn.setAttribute('aria-pressed', String(on));
-    btn.classList.toggle('active', on);
-    $('#focus-toggle-label').textContent = on ? 'Focus: On' : 'Focus: Off';
+    btn.setAttribute('aria-pressed', String(!!target));
+    btn.classList.toggle('active', !!target);
+    $('#focus-toggle-label').textContent = opt ? `Focus: ${opt.label}` : 'Focus';
+  }
+  /* Some screens update in place without a full render (biller search results,
+     field errors, network detection). Re-apply the blur when that happens. */
+  let focusRaf = 0;
+  new MutationObserver(() => {
+    if (!focusTarget() || focusRaf) return;
+    focusRaf = requestAnimationFrame(() => { focusRaf = 0; applyFocus(); });
+  }).observe(screenEl, { childList: true, subtree: true });
+
+  function openFocusPicker() {
+    const target = focusTarget();
+    const row = (id, label, ic) => `<button class="list-item" data-action="focus-pick" data-focus="${id}" data-guide="focus.option-${id || 'off'}">
+        <span class="avatar">${icon(ic, 20)}</span><span class="li-main"><span class="li-title">${esc(label)}</span></span>${(target || '') === id ? icon('check', 18) : ''}</button>`;
+    openModal(`<div class="sheet" data-guide="focus.sheet">
+      <div class="sheet-head"><h2>What do you want to do?</h2><button class="icon-btn" data-action="modal-close" aria-label="Close" data-guide="focus.close">${icon('x')}</button></div>
+      <p class="sheet-sub">Pick a task. We'll guide you through it step by step and blur everything else.</p>
+      <div class="list flush">
+        ${focusEnabled().map(id => row(id, FOCUS_OPTIONS[id].label, FOCUS_OPTIONS[id].icon)).join('')}
+        ${target ? row('', 'Turn off focus', 'eye') : ''}
+        <button class="list-item" data-action="focus-config" data-guide="focus.configure">
+          <span class="avatar">${icon('sliders', 20)}</span>
+          <span class="li-main"><span class="li-title">Configure</span><span class="li-sub">Add or remove tasks from this list</span></span>${icon('chevron-right', 18)}</button>
+      </div>
+    </div>`, { name: 'focus' });
+  }
+  /* Configure: the full pool, grouped, each row toggles whether it appears in
+     the picker. Rows update in place so the sheet keeps its scroll position. */
+  function openFocusConfig() {
+    const on = new Set(focusEnabled());
+    const groups = {};
+    Object.entries(FOCUS_OPTIONS).forEach(([id, o]) => (groups[o.group] = groups[o.group] || []).push([id, o]));
+    const row = ([id, o]) => `<button class="list-item" data-action="focus-config-toggle" data-focus="${id}" aria-pressed="${on.has(id)}" data-guide="focus.config-${id}">
+        <span class="avatar">${icon(o.icon, 20)}</span><span class="li-main"><span class="li-title">${esc(o.label)}</span></span>
+        <span class="cfg-check${on.has(id) ? ' on' : ''}">${on.has(id) ? icon('check', 16) : ''}</span></button>`;
+    openModal(`<div class="sheet" data-guide="focus.config">
+      <div class="sheet-head">
+        <button class="icon-btn" data-action="toggle-focus" aria-label="Back" data-guide="focus.config-back">${icon('chevron-left')}</button>
+        <h2>Configure focus tasks</h2>
+        <button class="icon-btn" data-action="modal-close" aria-label="Close" data-guide="focus.close">${icon('x')}</button></div>
+      <p class="sheet-sub">Tap a task to add it to or remove it from the Focus list. Checked tasks are shown.</p>
+      ${Object.entries(groups).map(([name, items]) => `<p class="cfg-group">${esc(name)}</p><div class="list flush">${items.map(row).join('')}</div>`).join('')}
+      <button class="btn cfg-done" data-action="toggle-focus" data-guide="focus.config-done">Done</button>
+    </div>`, { name: 'focus-config' });
+  }
+  function toggleFocusOption(el) {
+    const id = el.dataset.focus;
+    const list = focusEnabled();
+    const i = list.indexOf(id);
+    if (i >= 0) {
+      if (list.length === 1) return toast('Keep at least one task in the Focus list.');
+      list.splice(i, 1);
+    } else list.push(id);
+    S.focusEnabled = Object.keys(FOCUS_OPTIONS).filter(k => list.includes(k)); // keep pool order
+    if (focusTarget() && !S.focusEnabled.includes(focusTarget())) {   // removed the active task → turn focus off
+      S.focusMode = null;
+      applyFocus();
+      emit('app:focus', { on: false, target: null });
+    }
+    save();
+    const on = S.focusEnabled.includes(id);
+    el.setAttribute('aria-pressed', String(on));
+    const c = $('.cfg-check', el);
+    c.classList.toggle('on', on);
+    c.innerHTML = on ? icon('check', 16) : '';
   }
 
   function partOfDay() { const h = new Date().getHours(); return h < 12 ? 'morning' : h < 18 ? 'afternoon' : 'evening'; }
   function screenHome() {
-    const svc = s => `<button class="svc${FOCUS_KEEP.includes(s.id) ? ' keep' : ''}" data-action="${s.to ? 'nav' : 'soon'}" ${s.to ? `data-to="${s.to}"` : `data-name="${s.label}"`} data-guide="home.svc-${s.id}">
-        <span class="ic">${icon(s.icon, 22)}${s.badge ? `<span class="badge-new">${s.badge}</span>` : ''}</span><span>${s.label}</span></button>`;
+    const svc = s => {
+      const keep = s.to && FOCUS_SVCS.has(s.id);
+      return `<button class="svc${keep ? ' keep' : ''}" data-svc="${s.id}" data-action="${s.to ? 'nav' : 'soon'}" ${s.to ? `data-to="${s.to}"` : `data-name="${s.label}"`}${keep ? ` data-default-to="${s.to}" data-default-label="${esc(s.label)}"` : ''} data-guide="home.svc-${s.id}">
+        <span class="ic">${icon(s.icon, 22)}${s.badge ? `<span class="badge-new">${s.badge}</span>` : ''}</span><span class="svc-label">${s.label}</span></button>`;
+    };
     return {
       html: `<div class="home">
         <div class="home-top">
@@ -846,22 +1041,71 @@
       </div>`;
   }
 
-  /* OTP / 2FA step */
+  /* OTP / 2FA step — shared by every money-moving flow (replaces the MPIN sheet).
+     Each flow names its OTP route, where it starts, where "back"/expiry goes,
+     and how to finish once the OTP checks out. */
+  const OTP_FLOWS = {
+    send: {
+      otp: 'send/otp', start: 'send/form', review: 'send/review',
+      finish() {
+        const d = S.draft.send;
+        processTxn('send', {
+          title: `Sent to ${d.name}`, sub: fmtMobile(d.mobile), total: d.amount,
+          rows: [['Sent to', d.name], ['Mobile number', fmtMobile(d.mobile)], ['Amount', fmt(d.amount)], ...(d.message ? [['Message', d.message]] : [])],
+        }, 'send/review');
+      },
+    },
+    load: {
+      otp: 'load/otp', start: 'load', review: 'load/review',
+      finish() {
+        const d = S.draft.load;
+        processTxn('load', {
+          title: `Buy Load: ${d.promo.name}`, sub: `${fmtMobile(d.mobile)} · ${d.network}`, total: d.amount,
+          rows: [['Mobile number', fmtMobile(d.mobile)], ['Network', d.network], ['Load', d.promo.name]],
+        }, 'load/review');
+      },
+    },
+    bill: {
+      otp: 'bills/otp', start: 'bills', review: 'bills/review',
+      finish() {
+        const d = S.draft.bill, b = BILLER_BY_ID[d.billerId];
+        if (d.save && !S.savedBillers.some(s => s.billerId === d.billerId && s.account === d.account)) {
+          S.savedBillers.push({ billerId: d.billerId, account: d.account, accountName: d.accountName });
+        }
+        processTxn('bill', {
+          title: `Paid ${b.name}`, sub: `${b.short || 'Acct'} ${d.account}`, total: d.amount + d.fee,
+          rows: [['Biller', b.name], [b.field, d.account], ['Account name', d.accountName], ['Amount', fmt(d.amount)], ['Convenience fee', d.fee ? fmt(d.fee) : 'Free']],
+        }, 'bills/review');
+      },
+    },
+    bank: {
+      otp: 'bank/otp', start: 'bank', review: 'bank/review',
+      finish() {
+        const d = S.draft.bank, b = BANK_BY_ID[d.bankId];
+        processTxn('bank', {
+          title: `Transfer to ${b.name}`, sub: `${d.accountName} · ${d.account}`, total: d.amount + BANK_FEE,
+          rows: [['Bank', b.name], ['Account name', d.accountName], ['Account number', d.account], ['Amount', fmt(d.amount)], ['Transfer fee', fmt(BANK_FEE)]],
+        }, 'bank/review');
+      },
+    },
+  };
+  const OTP_SMS_MS = 5000; // how long the OTP text-message popup stays on screen
   function newOtp() {
     S.otp = { code: String(Math.floor(100000 + Math.random() * 900000)), attempts: 0, sentAt: Date.now() };
     save();
   }
-  function screenBankOtp() {
-    const d = S.draft.bank;
-    if (!d || !d.amount) return redirect('bank');
+  function screenOtp(kind) {
+    const flow = OTP_FLOWS[kind];
+    const d = S.draft[kind];
+    if (!d || !d.amount) return redirect(flow.start);
     if (!S.otp) newOtp();
     return {
-      html: `${appbar('Verification', 'bank/review')}
+      html: `${appbar('Verification', flow.review)}
         <div class="otp" data-guide="otp">
           <div class="otp-ic">${icon('lock', 30)}</div>
           <h2>Two-Factor Authentication (2FA)</h2>
           <p>Enter the 6-digit One-Time PIN (OTP) sent via SMS to your registered mobile number <b>+63 9** *** ${USER.mobile.slice(-4)}</b>. The OTP is valid for 5 minutes.</p>
-          <form data-form="otp" novalidate>
+          <form data-form="otp" data-kind="${kind}" novalidate>
             ${field({ name: 'otp', label: 'One-Time PIN', placeholder: '••••••', inputmode: 'numeric', maxlength: 6, guide: 'otp.input', autocomplete: 'one-time-code' })}
             <button class="btn" type="submit" data-guide="otp.submit">Verify</button>
           </form>
@@ -870,7 +1114,7 @@
         </div>`,
       after() {
         const code = S.otp.code;
-        timers.push(setTimeout(() => toast(`<b>${esc(BRAND.name)}</b>: Your OTP is <b>${code}</b>. It expires in 5 minutes. Do NOT share this code with anyone.`, { sms: true, duration: 10000 }), 1500));
+        timers.push(setTimeout(() => toast(`<b>${esc(BRAND.name)}</b>: Your OTP is <b>${code}</b>. It expires in 5 minutes. Do NOT share this code with anyone.`, { sms: true, duration: OTP_SMS_MS }), 1500));
         const tick = () => {
           const el = $('#resend');
           if (!el || !S.otp) return true;
@@ -884,6 +1128,9 @@
     };
   }
   function submitOtp(form) {
+    const kind = form.dataset.kind;
+    const flow = OTP_FLOWS[kind];
+    if (!flow || !S.draft[kind]) return go('home');
     const code = digits(formValues(form).otp);
     if (code.length !== 6) return showErrors(form, { otp: 'Please enter the 6-digit OTP.' });
     if (!S.otp) { newOtp(); return render(); }
@@ -894,18 +1141,14 @@
       if (left <= 0) {
         S.otp = null;
         save();
-        const msg = 'Too many invalid attempts. Your OTP has expired. Please review your transfer and request a new OTP.';
-        emit('app:error', { screen: 'bank/otp', field: 'otp', message: msg });
-        return dialog({ title: 'OTP expired', message: msg, ok: 'OK', name: 'otp-expired', onOk: () => go('bank/review') });
+        const msg = `Too many invalid attempts. Your OTP has expired. Please review your ${kind === 'send' ? 'transaction' : 'transfer'} and request a new OTP.`;
+        emit('app:error', { screen: flow.otp, field: 'otp', message: msg });
+        return dialog({ title: 'OTP expired', message: msg, ok: 'OK', name: 'otp-expired', onOk: () => go(flow.review) });
       }
       return showErrors(form, { otp: `Invalid OTP. You have ${left} remaining attempt${left === 1 ? '' : 's'}.` });
     }
     S.otp = null;
-    const d = S.draft.bank, b = BANK_BY_ID[d.bankId];
-    processTxn('bank', {
-      title: `Transfer to ${b.name}`, sub: `${d.accountName} · ${d.account}`, total: d.amount + BANK_FEE,
-      rows: [['Bank', b.name], ['Account name', d.accountName], ['Account number', d.account], ['Amount', fmt(d.amount)], ['Transfer fee', fmt(BANK_FEE)]],
-    }, 'bank/review');
+    flow.finish();
   }
 
   /* ---------- Result (success / failure) ---------- */
@@ -948,32 +1191,10 @@
      ======================================================================= */
   function confirm(kind) {
     const d = S.draft[kind];
-    if (!d) return go('home');
-    if (kind === 'send') {
-      askMpin(() => processTxn('send', {
-        title: `Sent to ${d.name}`, sub: fmtMobile(d.mobile), total: d.amount,
-        rows: [['Sent to', d.name], ['Mobile number', fmtMobile(d.mobile)], ['Amount', fmt(d.amount)], ...(d.message ? [['Message', d.message]] : [])],
-      }, 'send/review'));
-    } else if (kind === 'load') {
-      askMpin(() => processTxn('load', {
-        title: `Buy Load: ${d.promo.name}`, sub: `${fmtMobile(d.mobile)} · ${d.network}`, total: d.amount,
-        rows: [['Mobile number', fmtMobile(d.mobile)], ['Network', d.network], ['Load', d.promo.name]],
-      }, 'load/review'));
-    } else if (kind === 'bill') {
-      const b = BILLER_BY_ID[d.billerId];
-      askMpin(() => {
-        if (d.save && !S.savedBillers.some(s => s.billerId === d.billerId && s.account === d.account)) {
-          S.savedBillers.push({ billerId: d.billerId, account: d.account, accountName: d.accountName });
-        }
-        processTxn('bill', {
-          title: `Paid ${b.name}`, sub: `${b.short || 'Acct'} ${d.account}`, total: d.amount + d.fee,
-          rows: [['Biller', b.name], [b.field, d.account], ['Account name', d.accountName], ['Amount', fmt(d.amount)], ['Convenience fee', d.fee ? fmt(d.fee) : 'Free']],
-        }, 'bills/review');
-      });
-    } else if (kind === 'bank') {
-      newOtp();
-      go('bank/otp');
-    }
+    const flow = OTP_FLOWS[kind];
+    if (!d || !flow) return go('home');
+    newOtp();
+    go(flow.otp);
   }
 
   const ACTIONS = {
@@ -984,7 +1205,16 @@
     'dialog-ok': () => { const cb = dialogCb; dialogCb = null; closeModal(); if (cb) cb(); },
     'pin-key': el => pinKey(el.dataset.key),
     'pin-del': () => pinDel(),
-    'toggle-focus': () => { S.focusMode = !S.focusMode; save(); applyFocus(); emit('app:focus', { on: S.focusMode }); },
+    'toggle-focus': () => openFocusPicker(),
+    'focus-config': () => openFocusConfig(),
+    'focus-config-toggle': el => toggleFocusOption(el),
+    'focus-pick': el => {
+      S.focusMode = el.dataset.focus || null;
+      save();
+      closeModal();
+      applyFocus();
+      emit('app:focus', { on: !!S.focusMode, target: S.focusMode });
+    },
     'toggle-balance': () => { S.hideBalance = !S.hideBalance; render(); },
     confirm: el => confirm(el.dataset.kind),
     'send-to': el => { S.draft.send = { mobile: el.dataset.mobile }; go('send/form'); },
